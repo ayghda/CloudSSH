@@ -2,7 +2,7 @@ name = "twilight-bush-43f5"
 main = "src/worker/index.ts"
 compatibility_date = "2026-07-01"
 workers_dev = true
-
+ 
 [vars]
 DEBUG_MODE = "false"
 
