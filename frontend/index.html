@@ -36,7 +36,11 @@
       padding: 24px;
       box-sizing: border-box;
     }
-
+    /* 登录成功后允许官方 main.ts 隐藏登录页 */
+    #auth-section.hidden {
+    display: none !important;
+    }
+    
     html.dark #auth-section {
       --login-bg: #0b1121;
       --login-card: #161b2a;
