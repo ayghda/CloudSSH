@@ -11,7 +11,7 @@ interface CheckpointOptions {
   onUsage: (response: ModelResponse) => void;
 }
 
-/** Summarize old conversation and keep recent exchanges; no separate execution ledger. */
+/** Summarize old conversation while retaining bounded, actual tool-completion evidence. */
 export async function prepareContextCheckpoint(options: CheckpointOptions): Promise<{
   summary: string; recent: ResponseInput[]; source: 'model' | 'local';
 }> {
@@ -19,13 +19,15 @@ export async function prepareContextCheckpoint(options: CheckpointOptions): Prom
   signal.throwIfAborted();
   const { older, recent } = context.splitForCompaction();
   const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort('summary_timeout'), 20_000);
+  // A non-streaming 20s request often fails on slower Responses proxies even when
+  // the main streaming Agent works. Use the same SSE path and allow reasoning time.
+  const timer = setTimeout(() => timeout.abort('summary_timeout'), 90_000);
   let summary = context.formatItemsForCompaction(12 * 1024, older) || 'Continue from the recent conversation.';
   let source: 'model' | 'local' = 'local';
   try {
     if (older.length || context.summary) {
-      const request: ResponseRequest = { purpose: 'checkpoint', stream: false, instructions: COMPACTION_PROMPT,
-        input: [], max_output_tokens: 1500, reasoning: { effort: 'low' } };
+      const request: ResponseRequest = { purpose: 'checkpoint', stream: true, instructions: COMPACTION_PROMPT,
+        input: [], max_output_tokens: 4096, reasoning: { effort: 'low' } };
       for (const budget of [48 * 1024, 16 * 1024, 4 * 1024]) {
         request.input = [observation('conversation to summarize', context.formatItemsForCompaction(budget, older))];
         if (client.canFit(request)) break;
@@ -35,7 +37,14 @@ export async function prepareContextCheckpoint(options: CheckpointOptions): Prom
         signal.throwIfAborted();
         options.onUsage(response);
         if (response.text.trim()) { summary = response.text.trim(); source = 'model'; }
-      } catch { signal.throwIfAborted(); }
+        else console.info('Agent checkpoint local recovery', { reason: 'empty_summary' });
+      } catch (error) {
+        signal.throwIfAborted();
+        // Only safe metadata: never print request bodies, summaries or provider error text.
+        console.info('Agent checkpoint local recovery', { reason: timeout.signal.aborted ? 'timeout'
+          : error instanceof ResponsesError ? error.code : 'network_or_abort',
+        ...(error instanceof ResponsesError && error.status ? { status: error.status } : {}) });
+      }
     }
     if (!options.canContinue(context.checkpointSegment(summary, recent))) {
       throw new ResponsesError('responses_budget', undefined, { purpose: 'checkpoint' });

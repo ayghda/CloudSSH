@@ -1,5 +1,5 @@
 import { ResponsesError } from './responses-client';
-import { boundedToolOutput, bytes, estimateTokens,
+import { boundedToolOutput, boundedUtf8, bytes, estimateTokens,
   MAX_CONTEXT_BYTES, MAX_RETAINED_BYTES, MAX_TOOL_RESULT_BYTES } from './context-limits';
 import type { ModelResponse, ResponseFunctionCall, ResponseInput } from './types';
 
@@ -9,7 +9,11 @@ export function observation(label: string, content: string): ResponseInput {
 }
 
 type Turn = { history: ResponseInput[]; pending: ResponseInput[]; summary: string;
-  recent: ResponseInput[]; tokens: number };
+  recent: ResponseInput[]; tokens: number; completedTools: CompletedTool[]; omittedTools: number };
+
+type CompletedTool = { callId: string; name: string; args: string; result: string };
+const MAX_PROGRESS_BYTES = 56 * 1024;
+const MAX_PROGRESS_ENTRIES = 200;
 
 /** Model history only: no parallel evidence journal, credential filtering or audit ledger. */
 export class AgentContext {
@@ -25,6 +29,9 @@ export class AgentContext {
   private tokens = 0;
   private recent: ResponseInput[] = [];
   private openCalls = new Set<string>();
+  /** Bounded evidence of settled tool results, kept across model/local compaction. */
+  private completedTools: CompletedTool[] = [];
+  private omittedTools = 0;
 
   get earliestEditableTurn(): number { return this.turns.keys().next().value ?? this.nextTurn; }
   get canCheckpoint(): boolean { return this.history.length > 0 && !this.openCalls.size; }
@@ -37,6 +44,7 @@ export class AgentContext {
       if (point) {
         this.history = [...point.history]; this.pending = [...point.pending];
         this.summary = point.summary; this.recent = [...point.recent]; this.tokens = point.tokens;
+        this.completedTools = [...point.completedTools]; this.omittedTools = point.omittedTools;
         for (const index of this.turns.keys()) if (index >= userIndex) this.turns.delete(index);
         this.nextTurn = userIndex;
         this.pending.push(observation('history edit', 'Editing this conversation does not undo changes on the server. Check current state before repeating commands.'));
@@ -48,7 +56,8 @@ export class AgentContext {
       this.pending = this.pending.filter(item => 'type' in item && item.type === 'function_call_output');
     }
     this.turns.set(this.nextTurn++, { history: [...this.history], pending: [...this.pending],
-      summary: this.summary, recent: [...this.recent], tokens: this.tokens });
+      summary: this.summary, recent: [...this.recent], tokens: this.tokens,
+      completedTools: [...this.completedTools], omittedTools: this.omittedTools });
     this.currentGoal = message;
     if (!this.history.length && this.summary) this.pending = this.checkpointSegment(this.summary, this.recent);
     else this.pending.push({ role: 'user', content: message });
@@ -88,7 +97,13 @@ export class AgentContext {
 
   toolResult(call: ResponseFunctionCall, output: string): void {
     if (!this.openCalls.delete(call.call_id)) throw new ResponsesError('responses_invalid');
-    this.pending.push({ type: 'function_call_output', call_id: call.call_id, output: boundedToolOutput(output) });
+    const result = boundedToolOutput(output);
+    this.pending.push({ type: 'function_call_output', call_id: call.call_id, output: result });
+    this.completedTools.push({ callId: call.call_id, name: call.name,
+      args: boundedUtf8(call.arguments, 220), result: boundedUtf8(result, 180) });
+    while (this.completedTools.length > MAX_PROGRESS_ENTRIES || bytes(this.completedTools) > MAX_PROGRESS_BYTES) {
+      this.completedTools.shift(); this.omittedTools++;
+    }
   }
 
   needsCheckpoint(budget: number, prefix: string): boolean {
@@ -151,7 +166,22 @@ export class AgentContext {
   }
 
   checkpointSegment(summary: string, recent: ResponseInput[] = []): ResponseInput[] {
-    return [observation('context summary', summary), ...recent, { role: 'user', content: this.currentGoal }];
+    const recentIds = new Set(recent.filter(item => 'type' in item && item.type === 'function_call_output')
+      .map(item => (item as { call_id: string }).call_id));
+    const previous = this.completedTools.filter(item => !recentIds.has(item.callId));
+    const journal = previous.length || this.omittedTools
+      ? [observation('settled tool progress ledger',
+        `${this.omittedTools ? `${this.omittedTools} older tool results are outside the bounded ledger; consult the summary and inspect state before repeating them.\n` : ''}` +
+        previous.map(item => `${item.name}(${item.args}) => ${item.result}`).join('\n'))]
+      : [];
+    // Preserve the ORIGINAL user request before subsequent tool exchanges. Appending it at
+    // the end made a checkpoint look like a brand-new task and could replay side effects.
+    const hasGoal = recent.some(item => 'role' in item && item.role === 'user' && item.content === this.currentGoal);
+    return [observation('context summary', summary), ...journal,
+      ...(!hasGoal && this.currentGoal ? [{ role: 'user' as const, content: this.currentGoal }] : []),
+      ...recent,
+      observation('checkpoint continuation',
+        'This is the SAME in-progress task, not a new user request. Continue from the latest completed step. Tool results above are attempts, not necessarily successes. Do not replay commands, writes, or deployments without checking current remote state first.')];
   }
 
   replaceWithCompaction(summary: string, recent: ResponseInput[] = []): void {
@@ -166,9 +196,10 @@ export class AgentContext {
   retainedBytes(): number {
     const items = new Set<unknown>([...this.history, ...this.pending, ...this.recent]);
     let total = bytes(this.summary);
+    total += bytes(this.completedTools);
     for (const turn of this.turns.values()) {
       for (const item of [...turn.history, ...turn.pending, ...turn.recent]) items.add(item);
-      total += bytes(turn.summary) + 128;
+      total += bytes(turn.summary) + bytes(turn.completedTools) + 128;
     }
     return total + [...items].reduce<number>((sum, item) => sum + bytes(item), 0);
   }

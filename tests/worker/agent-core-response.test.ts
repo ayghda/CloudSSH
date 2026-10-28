@@ -102,7 +102,7 @@ describe('AgentCore Responses delivery and context', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       requests++;
       const body = JSON.parse(init!.body as string);
-      if (!body.stream) return Response.json(responseObject('resp_cp', 'Summary.'));
+      if (!body.tools) return reply('resp_cp', 'Summary.');
       if (requests === 3) return new Response('{"error":{"code":"invalid_api_key"}}', { status: 401 });
       const response = responseObject('resp_first', '', [functionCall()]);
       response.usage.input_tokens = 55_000;
@@ -229,7 +229,7 @@ describe('AgentCore Responses delivery and context', () => {
     const requests: any[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       const body = JSON.parse(init?.body as string); requests.push(body);
-      if (!body.stream) return Response.json(responseObject('resp_cp', 'Nginx inspected.'));
+      if (!body.tools) return reply('resp_cp', 'Nginx inspected.');
       if (requests.length === 1) {
         const response = responseObject('resp_1', '', [functionCall()], body);
         response.usage.input_tokens = 55_000; response.usage.total_tokens = 55_020;
@@ -239,9 +239,9 @@ describe('AgentCore Responses delivery and context', () => {
     });
     await agent.handleAgentStart('1', '检查 nginx');
     expect(requests).toHaveLength(3);
-    expect(requests[1].instructions).toContain('紧凑总结');
-    expect(requests[1].stream).toBe(false);
-    expect(requests[1].max_output_tokens).toBe(1500);
+    expect(requests[1].instructions).toContain('续接检查点');
+    expect(requests[1].stream).toBe(true);
+    expect(requests[1].max_output_tokens).toBe(4096);
     expect(requests[1]).not.toHaveProperty('previous_response_id');
     expect(requests[2]).not.toHaveProperty('previous_response_id');
     const calls = requests[2].input.filter((item: any) => item.type === 'function_call').map((item: any) => item.call_id);

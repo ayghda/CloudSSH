@@ -25,8 +25,8 @@ test('强制 GitHub 登录模式隐藏匿名连接表单', async ({ page }) => {
 
   await page.goto('/');
 
-  await expect(page.locator('#github-auth-required-panel')).toBeVisible();
-  await expect(page.locator('#github-login-btn')).toBeVisible();
+  await expect(page.locator('#custom-github-login-btn')).toBeVisible();
+  await expect(page.locator('#github-auth-required-panel')).toBeHidden();
   await expect(page.locator('#connection-form')).toHaveCount(0);
 });
 

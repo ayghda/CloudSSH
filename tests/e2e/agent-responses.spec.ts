@@ -272,12 +272,12 @@ test('an auxiliary memory failure warns without removing the active task stream'
   await expect(page.locator('#agent-messages')).toContainText('ACTIVE_STREAM');
 });
 
-for (const [locale, fallback, paused] of [
-  ['zh-CN', '近期对话', '安全暂停'],
-  ['zh-TW', '近期對話', '安全暫停'],
-  ['en-US', 'recent conversation', 'safely paused'],
+for (const [locale, paused] of [
+  ['zh-CN', '安全暂停'],
+  ['zh-TW', '安全暫停'],
+  ['en-US', 'safely paused'],
 ]) {
-  test(`context compaction local fallback and pause diagnostics are localized (${locale})`, async ({ page }) => {
+  test(`automatic compaction stays silent and pause diagnostics are localized (${locale})`, async ({ page }) => {
     await mount(page, locale);
     await page.evaluate(() => {
       const { panel, sent } = (window as any).__responsesAgent;
@@ -291,7 +291,7 @@ for (const [locale, fallback, paused] of [
       const { panel, sent } = (window as any).__responsesAgent;
       panel.handleAgentFrame({ subType: 'context_status', requestId: sent.at(-1).requestId, compacted: true, checkpointSource: 'local' });
     });
-    await expect(page.locator('.app-toast').filter({ hasText: fallback })).toBeVisible();
+    await expect(page.locator('.app-toast')).toHaveCount(0);
     await expect(page.locator('#agent-send-btn')).toHaveClass(/is-stopping/);
     await expect(page.locator('#agent-messages')).toContainText('ACTIVE_CHECKPOINT_STREAM');
     await page.evaluate(() => {

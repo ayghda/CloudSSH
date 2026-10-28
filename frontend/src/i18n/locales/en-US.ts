@@ -101,6 +101,11 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   'auth.statusOnline': 'Status: Online',
   'auth.recent': 'Recent connections',
   'auth.login': 'Sign in with GitHub',
+  'auth.customTitle': 'Sign in',
+  'auth.customSubtitle': 'Secure Web SSH terminal',
+  'auth.customDescription': 'Sign in with GitHub to manage and connect to your saved SSH servers.',
+  'auth.customReady': 'System ready. Waiting for connection.',
+  'auth.customToggle': 'Toggle login page light and dark mode',
   'auth.logout': 'Sign out',
   'auth.githubRequired': 'This CloudSSH instance requires GitHub sign-in',
   'auth.githubRequiredHint':

@@ -86,6 +86,25 @@ function initServerPaginationBreakpoints(): void {
   }
 }
 
+/** The login card has an independent light/dark switch; it must not alter the app theme. */
+function initLoginAppearance(): void {
+  const authSection = document.getElementById('auth-section');
+  const toggle = document.getElementById('custom-theme-toggle');
+  if (!authSection || !toggle) return;
+
+  const applyAppearance = (appearance: 'light' | 'dark'): void => {
+    authSection.dataset.loginAppearance = appearance;
+    toggle.setAttribute('aria-pressed', String(appearance === 'dark'));
+  };
+
+  applyAppearance(localStorage.getItem('cloudssh_login_appearance') === 'light' ? 'light' : 'dark');
+  toggle.addEventListener('click', () => {
+    const next = authSection.dataset.loginAppearance === 'dark' ? 'light' : 'dark';
+    applyAppearance(next);
+    localStorage.setItem('cloudssh_login_appearance', next);
+  });
+}
+
 /** 获取或初始化 TabManager 单例 */
 function getTabManager(): TabManager {
   if (!tabManager) {
@@ -964,6 +983,7 @@ function consumeAdminSetupRoute(): void {
 async function init(): Promise<void> {
   clearLegacyAgentSessionDrafts();
   initI18n();
+  initLoginAppearance();
   initUserSpaceMobileMenu();
   initServerPaginationBreakpoints();
   bindBackToTerminalButtons();

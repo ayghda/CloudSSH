@@ -601,11 +601,9 @@ export class AgentPanel {
         this.updateInputState();
         break;
       case 'context_status':
-        if (msg.compacted && msg.checkpointSource === 'local') {
-          notify(t('agent.contextLocalFallback'), { variant: 'warning' });
-        } else if (msg.compacting === true) {
-          notify(t('agent.contextCompacting'), { variant: 'info' });
-        }
+        // Automatic compaction is an internal continuation detail, not an error.
+        // In particular, showing a warning for every locally recovered checkpoint
+        // interrupts long-running tasks although their execution continues safely.
         break;
       case 'memory_status':
         notify(t('agent.memoryFailure'), { variant: 'warning' });

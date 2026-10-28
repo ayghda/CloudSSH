@@ -118,6 +118,13 @@ export class ConnectionForm {
       this.turnstileEnabled = config.turnstileEnabled;
       this.turnstileSitekey = config.sitekey;
 
+      // The custom GitHub gate changes only the entry-page appearance. Keep the
+      // original connection form available for anonymous and password modes.
+      document.getElementById('auth-section')?.classList.toggle(
+        'github-only-login',
+        config.githubAuthEnabled && config.authMode !== 'password' && config.authMode !== 'cf_access'
+      );
+
       // Cloudflare Access 模式：由 Cloudflare 边缘网关接管身份，不渲染外部登录表单
       if (config.authMode === 'cf_access') {
         return;
